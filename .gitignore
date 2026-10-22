@@ -1,0 +1,8 @@
+.venv/
+CINIC-10/
+CINIC-10.tar.gz
+outputs/checkpoints/
+outputs/logs/
+__pycache__/
+*.pyc
+.DS_Store
