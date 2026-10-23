@@ -23,21 +23,24 @@ from resnet import ResNet18
 
 
 @torch.no_grad()
-def collect_predictions(model, loader, device, max_failures=32):
-    """Returns (y_true, y_pred) over the whole loader plus up to
-    `max_failures` misclassified images (tensor, true, pred)."""
+def collect_predictions(model, loader, device, per_class=2):
+    """Returns (y_true, y_pred) over the whole loader plus up to `per_class`
+    misclassified images (tensor, true, pred) for each true class. The test
+    split is stored class by class, so capping per class (rather than taking
+    the first N failures) keeps the examples from all being airplanes."""
     model.eval()
-    y_true, y_pred, failures = [], [], []
+    y_true, y_pred = [], []
+    failures = {c: [] for c in range(len(CLASSES))}
     for images, labels in loader:
         outputs = logits_of(model(images.to(device)))
         predicted = outputs.argmax(1).cpu()
         y_true.append(labels)
         y_pred.append(predicted)
-        if len(failures) < max_failures:
-            for i in (predicted != labels).nonzero().flatten():
-                failures.append((images[i], labels[i].item(), predicted[i].item()))
-                if len(failures) >= max_failures:
-                    break
+        for i in (predicted != labels).nonzero().flatten():
+            true = labels[i].item()
+            if len(failures[true]) < per_class:
+                failures[true].append((images[i], true, predicted[i].item()))
+    failures = [f for c in range(len(CLASSES)) for f in failures[c]]
     return torch.cat(y_true).numpy(), torch.cat(y_pred).numpy(), failures
 
 
@@ -62,12 +65,13 @@ def plot_confusion(cm, name):
 def plot_failures(failures, name, mean, std):
     mean = torch.tensor(mean).view(3, 1, 1)
     std = torch.tensor(std).view(3, 1, 1)
-    n = min(len(failures), 16)
-    fig, axes = plt.subplots(4, 4, figsize=(9, 9))
-    for ax, (img, true, pred) in zip(axes.flat, failures[:n]):
+    # 4x5 grid: two failures per true class, in class order.
+    fig, axes = plt.subplots(4, 5, figsize=(11, 9))
+    for ax in axes.flat:
+        ax.axis("off")
+    for ax, (img, true, pred) in zip(axes.flat, failures):
         ax.imshow((img * std + mean).clamp(0, 1).permute(1, 2, 0))
         ax.set_title(f"true: {CLASSES[true]}\npred: {CLASSES[pred]}", fontsize=8)
-        ax.axis("off")
     fig.suptitle(f"{name}: misclassified test examples")
     fig.tight_layout()
     out = PLOT_DIR / f"{name}_failures.png"
