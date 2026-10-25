@@ -1,13 +1,3 @@
-"""Evaluate a trained checkpoint on the CINIC-10 test set.
-
-Produces overall + per-class accuracy, a confusion matrix plot, and a grid
-of misclassified examples.
-
-  python evaluate.py --model resnet                       # outputs/checkpoints/resnet18.pt
-  python evaluate.py --model vit  --name vit_full
-  python evaluate.py --model vit  --name vit_frozen --freeze
-"""
-
 import argparse
 
 import matplotlib
@@ -24,10 +14,6 @@ from resnet import ResNet18
 
 @torch.no_grad()
 def collect_predictions(model, loader, device, per_class=2):
-    """Returns (y_true, y_pred) over the whole loader plus up to `per_class`
-    misclassified images (tensor, true, pred) for each true class. The test
-    split is stored class by class, so capping per class (rather than taking
-    the first N failures) keeps the examples from all being airplanes."""
     model.eval()
     y_true, y_pred = [], []
     failures = {c: [] for c in range(len(CLASSES))}
@@ -49,12 +35,13 @@ def plot_confusion(cm, name):
     im = ax.imshow(cm, cmap="Blues")
     ax.set_xticks(range(10), CLASSES, rotation=45, ha="right")
     ax.set_yticks(range(10), CLASSES)
-    ax.set_xlabel("predicted"), ax.set_ylabel("true")
+    ax.set_xlabel("predicted")
+    ax.set_ylabel("true")
     ax.set_title(f"{name}: confusion matrix (test set)")
     for i in range(10):
         for j in range(10):
-            ax.text(j, i, cm[i, j], ha="center", va="center", fontsize=7,
-                    color="white" if cm[i, j] > cm.max() / 2 else "black")
+            color = "white" if cm[i, j] > cm.max() / 2 else "black"
+            ax.text(j, i, cm[i, j], ha="center", va="center", fontsize=7, color=color)
     fig.colorbar(im)
     fig.tight_layout()
     out = PLOT_DIR / f"{name}_confusion.png"
@@ -65,7 +52,6 @@ def plot_confusion(cm, name):
 def plot_failures(failures, name, mean, std):
     mean = torch.tensor(mean).view(3, 1, 1)
     std = torch.tensor(std).view(3, 1, 1)
-    # 4x5 grid: two failures per true class, in class order.
     fig, axes = plt.subplots(4, 5, figsize=(11, 9))
     for ax in axes.flat:
         ax.axis("off")
@@ -82,10 +68,8 @@ def plot_failures(failures, name, mean, std):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", choices=("resnet", "vit"), required=True)
-    p.add_argument("--name", default=None,
-                   help="checkpoint/plot name (default: resnet18 or vit_full)")
-    p.add_argument("--freeze", action="store_true",
-                   help="rebuild the ViT with a frozen body (must match training)")
+    p.add_argument("--name", default=None)
+    p.add_argument("--freeze", action="store_true")
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--num-workers", type=int, default=6)
     args = p.parse_args()
@@ -105,8 +89,7 @@ def main():
     model.load_state_dict(state)
     model.to(device)
 
-    loader = get_loader("test", batch_size=args.batch_size,
-                        for_vit=(args.model == "vit"),
+    loader = get_loader("test", batch_size=args.batch_size, for_vit=(args.model == "vit"),
                         num_workers=args.num_workers)
     y_true, y_pred, failures = collect_predictions(model, loader, device)
 

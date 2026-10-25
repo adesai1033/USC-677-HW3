@@ -1,5 +1,3 @@
-"""Shared training/evaluation loop used by both the ResNet and ViT scripts."""
-
 import csv
 import time
 from pathlib import Path
@@ -16,7 +14,7 @@ LOG_DIR = ROOT / "outputs" / "logs"
 PLOT_DIR = ROOT / "outputs" / "plots"
 
 
-def get_device() -> torch.device:
+def get_device():
     if torch.backends.mps.is_available():
         return torch.device("mps")
     if torch.cuda.is_available():
@@ -25,13 +23,11 @@ def get_device() -> torch.device:
 
 
 def logits_of(output):
-    """Plain tensors (ResNet) and HF ImageClassifierOutput (ViT) both work."""
     return output.logits if hasattr(output, "logits") else output
 
 
 @torch.no_grad()
-def compute_accuracy(model, dataloader, device) -> float:
-    """Top-1 accuracy in percent."""
+def compute_accuracy(model, dataloader, device):
     model.eval()
     correct, total = 0, 0
     for images, labels in dataloader:
@@ -43,28 +39,14 @@ def compute_accuracy(model, dataloader, device) -> float:
     return correct / total * 100
 
 
-def train(
-    model,
-    train_loader,
-    valid_loader,
-    *,
-    name: str,
-    epochs: int,
-    lr: float,
-    log_every: int = 100,
-    val_every: int = 1,
-    device=None,
-):
-    """Train with Adam + cross-entropy; logs loss every `log_every` steps and
-    validates every `val_every` epochs. Saves the best checkpoint (by validation
-    accuracy), a CSV log, and loss/accuracy curves named after `name`."""
+def train(model, train_loader, valid_loader, name, epochs, lr, log_every=100, val_every=1, device=None):
     device = device or get_device()
     model.to(device)
     trainable = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.Adam(trainable, lr=lr, betas=(0.9, 0.999))
     loss_fn = nn.CrossEntropyLoss()
 
-    loss_rows, val_rows = [], []  # (step, epoch, avg loss), (step, epoch, acc)
+    loss_rows, val_rows = [], []
     best_acc, step = 0.0, 0
     ckpt_path = CKPT_DIR / f"{name}.pt"
     t0 = time.time()
@@ -88,8 +70,7 @@ def train(
                 avg = running / n_running
                 loss_rows.append((step, epoch, avg))
                 running, n_running = 0.0, 0
-                print(f"[{name}] epoch {epoch} step {step} "
-                      f"loss {avg:.4f} ({time.time() - t0:.0f}s)")
+                print(f"[{name}] epoch {epoch} step {step} loss {avg:.4f} ({time.time() - t0:.0f}s)")
 
         if epoch % val_every == 0 or epoch == epochs:
             acc = compute_accuracy(model, valid_loader, device)
@@ -100,15 +81,14 @@ def train(
                 torch.save(model.state_dict(), ckpt_path)
                 print(f"[{name}] saved best checkpoint -> {ckpt_path}")
 
-    _write_csv(LOG_DIR / f"{name}_loss.csv", ("step", "epoch", "loss"), loss_rows)
-    _write_csv(LOG_DIR / f"{name}_val.csv", ("step", "epoch", "val_acc"), val_rows)
+    write_csv(LOG_DIR / f"{name}_loss.csv", ("step", "epoch", "loss"), loss_rows)
+    write_csv(LOG_DIR / f"{name}_val.csv", ("step", "epoch", "val_acc"), val_rows)
     plot_curves(name, loss_rows, val_rows)
-    print(f"[{name}] done in {(time.time() - t0) / 60:.1f} min; "
-          f"best val acc {best_acc:.2f}%")
+    print(f"[{name}] done in {(time.time() - t0) / 60:.1f} min; best val acc {best_acc:.2f}%")
     return best_acc
 
 
-def _write_csv(path, header, rows):
+def write_csv(path, header, rows):
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(header)
@@ -118,10 +98,12 @@ def _write_csv(path, header, rows):
 def plot_curves(name, loss_rows, val_rows):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4))
     ax1.plot([r[0] for r in loss_rows], [r[2] for r in loss_rows])
-    ax1.set_xlabel("step"), ax1.set_ylabel("training loss")
+    ax1.set_xlabel("step")
+    ax1.set_ylabel("training loss")
     ax1.set_title(f"{name}: training loss")
     ax2.plot([r[1] for r in val_rows], [r[2] for r in val_rows], marker="o")
-    ax2.set_xlabel("epoch"), ax2.set_ylabel("validation accuracy (%)")
+    ax2.set_xlabel("epoch")
+    ax2.set_ylabel("validation accuracy (%)")
     ax2.set_title(f"{name}: validation accuracy")
     fig.tight_layout()
     out = PLOT_DIR / f"{name}_curves.png"
